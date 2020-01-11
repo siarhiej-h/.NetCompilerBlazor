@@ -1,0 +1,88 @@
+﻿@page "/"
+
+@using System.Threading.Tasks;
+@using Data;
+
+<div id="@Constants.MonacoContainer" style="width:1024px;height:600px;border:1px solid grey"></div>
+<button class="btn" @onclick="Run">Run</button>
+<br />
+<div class="compilationoutput">
+    <div><textarea rows="10" cols="120" readonly>@Output?.Output</textarea></div>
+    <div>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Compilation time (milliseconds)</th>
+                    <th>Execution time (milliseconds)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>@Output?.CompileTimeMs</td>
+                    <td>@Output?.ExecutionTimeMs</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+@code {
+
+    private ExecutionResult Output;
+    private const string DefaultCode = @"using System;
+
+class Program
+{
+    public static void Main()
+    {
+        Console.WriteLine(""Hello World"");
+    }
+}";
+
+    [Inject] private MonacoInterop _monaco { get; set; }
+    [Inject] private ExecutorService _executor { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        if (firstRender)
+        {
+            await _monaco.Initialize(DefaultCode, "csharp");
+        }
+    }
+
+    private async Task Run()
+    {
+        Output = null;
+        StateHasChanged();
+
+        var code = await _monaco.GetCode();
+        Output = await _executor.CompileAndRun(code);
+
+        await _monaco.SetMarkers(Output.Markers?
+            .Select(m => new
+            {
+                m.StartLineNumber,
+                m.StartColumn,
+                m.EndLineNumber,
+                m.EndColumn,
+                m.Message,
+                Severity = MapSeverity(m.Severity)
+            })
+            .ToArray());
+
+        StateHasChanged();
+    }
+
+    private static int MapSeverity(Microsoft.CodeAnalysis.DiagnosticSeverity severity)
+    {
+        //https://microsoft.github.io/monaco-editor/api/enums/monaco.markerseverity.html
+        return severity switch
+        {
+            Microsoft.CodeAnalysis.DiagnosticSeverity.Error => 8,
+            Microsoft.CodeAnalysis.DiagnosticSeverity.Warning => 4,
+            Microsoft.CodeAnalysis.DiagnosticSeverity.Info => 2,
+            _ => 1
+        };
+    }
+}
